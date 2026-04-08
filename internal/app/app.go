@@ -46,12 +46,15 @@ func Run() error {
 		svc.HandleMessage,
 	)
 
+	logger.Info("starting mqtt client")
 	if err := mqttc.Start(ctx); err != nil {
 		return err
 	}
-	defer mqttc.Stop()
+	logger.Info("mqtt client started")
 
 	httpSrv := httpserver.New(cfg.HTTPPort, logger, mqttc.IsConnected)
+
+	logger.Info("starting http server", slog.String("port", cfg.HTTPPort))
 	httpSrv.Start()
 
 	logger.Info("service started",
