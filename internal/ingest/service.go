@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 )
 
@@ -15,27 +14,70 @@ type Service struct {
 }
 
 func NewService(repo Repository, logger *slog.Logger) *Service {
-	return &Service{repo: repo, logger: logger}
+	return &Service{
+		repo:   repo,
+		logger: logger,
+	}
+}
+
+type incomingPayload struct {
+	Gateway         string   `json:"gateway"`
+	DeviceID        string   `json:"deviceId"`
+	NodeType        string   `json:"nodeType"`
+	BootID          *int64   `json:"bootId"`
+	DeviceMS        *int64   `json:"deviceMs"`
+	Seq             int64    `json:"seq"`
+	Status          int      `json:"status"`
+	TemperatureC    *float64 `json:"temperatureC"`
+	HumidityAirPct  *float64 `json:"humidityAirPct"`
+	SoilMoistureRaw *int     `json:"soilMoistureRaw"`
+	SoilMoisturePct *float64 `json:"soilMoisturePct"`
+	BatteryMv       *float64 `json:"batteryMv"`
 }
 
 func (s *Service) HandleMessage(ctx context.Context, topic string, payload []byte) error {
-	deviceKey := extractDeviceKey(topic)
-	if deviceKey == "" {
-		return fmt.Errorf("unable to extract device key from topic %s", topic)
+	if !json.Valid(payload) {
+		return fmt.Errorf("payload is not valid json")
 	}
 
-	raw := string(payload)
-	var payloadJSON []byte
-	if json.Valid(payload) {
-		payloadJSON = payload
+	var in incomingPayload
+	if err := json.Unmarshal(payload, &in); err != nil {
+		return fmt.Errorf("unmarshal payload: %w", err)
+	}
+
+	if in.DeviceID == "" {
+		return fmt.Errorf("payload missing deviceId")
+	}
+	if in.NodeType == "" {
+		return fmt.Errorf("payload missing nodeType")
+	}
+	if in.Seq == 0 {
+		s.logger.Warn("payload seq is 0", slog.String("topic", topic))
+	}
+
+	var batteryV *float64
+	if in.BatteryMv != nil {
+		v := *in.BatteryMv / 1000.0
+		batteryV = &v
 	}
 
 	evt := Event{
-		DeviceKey:   deviceKey,
-		Topic:       topic,
-		PayloadRaw:  raw,
-		PayloadJSON: payloadJSON,
-		ReceivedAt:  time.Now().UTC(),
+		DeviceID:        in.DeviceID,
+		NodeType:        in.NodeType,
+		GatewayID:       in.Gateway,
+		BootID:          in.BootID,
+		DeviceMS:        in.DeviceMS,
+		Topic:           topic,
+		Seq:             in.Seq,
+		Status:          in.Status,
+		TemperatureC:    in.TemperatureC,
+		HumidityAirPct:  in.HumidityAirPct,
+		SoilMoistureRaw: in.SoilMoistureRaw,
+		SoilMoisturePct: in.SoilMoisturePct,
+		BatteryV:        batteryV,
+		DeviceTS:        time.Now().UTC(),
+		PayloadRaw:      string(payload),
+		PayloadJSON:     payload,
 	}
 
 	if err := s.repo.SaveEvent(ctx, evt); err != nil {
@@ -43,19 +85,11 @@ func (s *Service) HandleMessage(ctx context.Context, topic string, payload []byt
 	}
 
 	s.logger.Info("telemetry ingested",
-		slog.String("device_key", evt.DeviceKey),
+		slog.String("device_id", evt.DeviceID),
 		slog.String("topic", evt.Topic),
-		slog.Time("received_at", evt.ReceivedAt),
+		slog.Int64("seq", evt.Seq),
+		slog.Time("device_ts", evt.DeviceTS),
 	)
 
 	return nil
-}
-
-func extractDeviceKey(topic string) string {
-	// Ejemplo esperado: sensores/<deviceKey>/telemetry
-	parts := strings.Split(topic, "/")
-	if len(parts) >= 3 {
-		return parts[1]
-	}
-	return ""
 }

@@ -52,7 +52,18 @@ func NewClient(
 		logger.Info("mqtt connected")
 
 		for _, topic := range topics {
+			logger.Info("attempting subscribe",
+				slog.String("topic", topic),
+				slog.Int("qos", int(qos)),
+			)
+
 			token := mc.Subscribe(topic, qos, func(_ paho.Client, msg paho.Message) {
+				logger.Info("mqtt message received",
+					slog.String("topic", msg.Topic()),
+					slog.Int("payload_size", len(msg.Payload())),
+					slog.String("payload", string(msg.Payload())),
+				)
+
 				if err := handler(context.Background(), msg.Topic(), msg.Payload()); err != nil {
 					logger.Error(
 						"failed to process mqtt message",
