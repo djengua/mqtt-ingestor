@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/djengua/mqtt-ingestor/internal/api"
+	"github.com/djengua/mqtt-ingestor/internal/auth"
 )
 
 type ReadinessFunc func() bool
@@ -15,7 +18,7 @@ type Server struct {
 	logger *slog.Logger
 }
 
-func New(port string, logger *slog.Logger, readiness ReadinessFunc) *Server {
+func New(port string, logger *slog.Logger, readiness ReadinessFunc, apiHandlers *api.APIHandlers, authService *auth.Service) *Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +31,21 @@ func New(port string, logger *slog.Logger, readiness ReadinessFunc) *Server {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ready"})
+	})
+
+	// Auth endpoints (public)
+	mux.HandleFunc("/api/v1/auth/register", apiHandlers.HandleRegister)
+	mux.HandleFunc("/api/v1/auth/login", apiHandlers.HandleLogin)
+
+	// Protected endpoints with auth middleware
+	authMw := api.AuthMiddleware(authService, logger)
+
+	mux.HandleFunc("/api/v1/devices", func(w http.ResponseWriter, r *http.Request) {
+		authMw(http.HandlerFunc(apiHandlers.HandleListDevices)).ServeHTTP(w, r)
+	})
+
+	mux.HandleFunc("/api/v1/devices/", func(w http.ResponseWriter, r *http.Request) {
+		authMw(http.HandlerFunc(apiHandlers.HandleGetDeviceTelemetry)).ServeHTTP(w, r)
 	})
 
 	srv := &http.Server{

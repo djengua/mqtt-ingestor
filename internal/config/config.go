@@ -22,6 +22,8 @@ type Config struct {
 	MQTTQoS      byte
 
 	PostgresDSN string
+
+	JWTSecret string
 }
 
 func Load() (Config, error) {
@@ -43,6 +45,7 @@ func Load() (Config, error) {
 		MQTTTopics:   splitCSV(getEnv("MQTT_TOPICS", "sensores/+/telemetry")),
 		MQTTQoS:      qos,
 		PostgresDSN:  getEnv("POSTGRES_DSN", "postgres://postgres:postgres@localhost:5432/iot?sslmode=disable"),
+		JWTSecret:    getEnv("JWT_SECRET", "your-super-secret-jwt-key-change-in-production"),
 	}
 
 	if cfg.MQTTBroker == "" || len(cfg.MQTTTopics) == 0 || cfg.PostgresDSN == "" {

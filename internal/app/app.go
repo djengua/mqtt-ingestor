@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/djengua/mqtt-ingestor/internal/api"
+	"github.com/djengua/mqtt-ingestor/internal/auth"
 	"github.com/djengua/mqtt-ingestor/internal/config"
 	"github.com/djengua/mqtt-ingestor/internal/db"
 	"github.com/djengua/mqtt-ingestor/internal/httpserver"
@@ -32,8 +34,16 @@ func Run() error {
 	}
 	defer pool.Close()
 
+	// Initialize auth services
+	userRepo := auth.NewPostgresUserRepository(pool)
+	authService := auth.NewService(userRepo, cfg.JWTSecret, 24*time.Hour)
+
+	// Initialize ingest services
 	repo := ingest.NewPostgresRepository(pool)
 	svc := ingest.NewService(repo, logger)
+
+	// Initialize API handlers
+	apiHandlers := api.NewAPIHandlers(authService, pool, logger)
 
 	mqttc := mqttclient.NewClient(
 		cfg.MQTTBroker,
@@ -52,7 +62,7 @@ func Run() error {
 	}
 	logger.Info("mqtt client started")
 
-	httpSrv := httpserver.New(cfg.HTTPPort, logger, mqttc.IsConnected)
+	httpSrv := httpserver.New(cfg.HTTPPort, logger, mqttc.IsConnected, apiHandlers, authService)
 
 	logger.Info("starting http server", slog.String("port", cfg.HTTPPort))
 	httpSrv.Start()
